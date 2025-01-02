@@ -57,6 +57,7 @@ class SrsRtcNetworks;
 class SrsRtcUdpNetwork;
 class ISrsRtcNetwork;
 class SrsRtcTcpNetwork;
+class SrsRtcPlayRtcpTimer;
 
 const uint8_t kSR   = 200;
 const uint8_t kRR   = 201;
@@ -211,6 +212,7 @@ public:
 class SrsRtcPlayStream : public ISrsCoroutineHandler, public ISrsReloadHandler
     , public ISrsRtcPLIWorkerHandler, public ISrsRtcSourceChangeCallback
 {
+friend class SrsRtcPlayRtcpTimer;
 private:
     SrsContextId cid_;
     SrsFastCoroutine* trd_;
@@ -224,6 +226,8 @@ private:
     std::map<uint32_t, SrsRtcVideoSendTrack*> video_tracks_;
     // The pithy print for special stage.
     SrsErrorPithyPrint* nack_epp;
+private:
+    SrsRtcPlayRtcpTimer* timer_rtcp_;
 private:
     // Fast cache for tracks.
     uint32_t cache_ssrc0_;
@@ -260,6 +264,8 @@ public:
     virtual void stop();
 public:
     virtual srs_error_t cycle();
+public:
+    srs_error_t send_rtcp_sr(srs_utime_t now);    
 private:
     srs_error_t send_packet(SrsRtpPacket*& pkt);
 public:
@@ -271,7 +277,7 @@ private:
     srs_error_t on_rtcp_xr(SrsRtcpXr* rtcp);
     srs_error_t on_rtcp_nack(SrsRtcpNack* rtcp);
     srs_error_t on_rtcp_ps_feedback(SrsRtcpFbCommon* rtcp);
-    srs_error_t on_rtcp_rr(SrsRtcpRR* rtcp);
+    srs_error_t on_rtcp_rr(SrsRtcpRR* rtcp, int64_t now_ms);
     uint32_t get_video_publish_ssrc(uint32_t play_ssrc);
 // Interface ISrsRtcPLIWorkerHandler
 public:
@@ -289,6 +295,18 @@ public:
 // interface ISrsFastTimer
 private:
     srs_error_t on_timer(srs_utime_t interval);
+};
+
+// A fast timer for play stream, for RTCP feedback.
+class SrsRtcPlayRtcpTimer : public ISrsFastTimer
+{
+private:
+    SrsRtcPlayStream* p_;
+public:
+    SrsRtcPlayRtcpTimer(SrsRtcPlayStream* p);
+    virtual ~SrsRtcPlayRtcpTimer();
+private:
+    srs_error_t on_timer(srs_utime_t interval);        
 };
 
 // A fast timer for publish stream, for TWCC feedback.
