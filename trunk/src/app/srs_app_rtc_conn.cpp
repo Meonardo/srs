@@ -774,7 +774,7 @@ srs_error_t SrsRtcPlayStream::send_packet(SrsRtpPacket*& pkt)
 
     // Ignore if no track found.
     if (!track) {
-        srs_warn("RTC: Drop for ssrc %u not found", ssrc);
+        srs_warn("RTC: Drop for ssrc %u not found", ssrc); // this maybe only play audio or video.
         return err;
     }
 
@@ -1012,7 +1012,7 @@ srs_error_t SrsRtcPlayRtcpTimer::on_timer(srs_utime_t interval)
         return err;
     }
 
-    srs_utime_t now_ms = srs_update_system_time();
+    srs_utime_t now_ms = srsu2ms(srs_update_system_time()); // in ms
     if ((err = p_->send_rtcp_sr(now_ms)) != srs_success) 
     {
       srs_warn("RR err %s", srs_error_desc(err).c_str());
@@ -1661,8 +1661,12 @@ srs_error_t SrsRtcPublishStream::on_rtcp_sr(SrsRtcpSR* rtcp)
     srs_error_t err = srs_success;
     SrsNtp srs_ntp = SrsNtp::to_time_ms(rtcp->get_ntp());
 
-    srs_verbose("sender report, ssrc_of_sender=%u, rtp_time=%u, sender_packet_count=%u, sender_octec_count=%u, ms=%u",
-        rtcp->get_ssrc(), rtcp->get_rtp_ts(), rtcp->get_rtp_send_packets(), rtcp->get_rtp_send_bytes(), srs_ntp.system_ms_);
+    srs_info(
+        "sender report, ssrc_of_sender=%u, ntp: %llu, rtp_time=%u, "
+        "sender_packet_count=%u, sender_octec_count=%u, ms=%lu",
+        rtcp->get_ssrc(), rtcp->get_ntp(), rtcp->get_rtp_ts(),
+        rtcp->get_rtp_send_packets(), rtcp->get_rtp_send_bytes(),
+        srs_ntp.system_ms_);
 
     update_send_report_time(rtcp->get_ssrc(), srs_ntp, rtcp->get_rtp_ts());
 
@@ -2185,15 +2189,15 @@ srs_error_t SrsRtcConnection::dispatch_rtcp(SrsRtcpCommon* rtcp)
     } else if (SrsRtcpType_rr == rtcp->type()) {
         SrsRtcpRR* rr = dynamic_cast<SrsRtcpRR*>(rtcp);
         
-         for (std::vector<SrsRtcpRB>::iterator iter = rr->rr_blocks_.begin(); iter != rr->rr_blocks_.end(); iter++) {
-            SrsRtcpRB& rb = *iter;
-            uint32_t ssrc = rb.ssrc;
-            std::map<uint32_t, SrsRtcPlayStream*>::iterator it = players_ssrc_map_.find(ssrc);
-            if (it != players_ssrc_map_.end()) {
-                it->second->on_rtcp(rtcp);
-                break;
-            }
+        for (std::vector<SrsRtcpRB>::iterator iter = rr->rr_blocks_.begin(); iter != rr->rr_blocks_.end(); iter++) {
+        SrsRtcpRB& rb = *iter;
+        uint32_t ssrc = rb.ssrc;
+        std::map<uint32_t, SrsRtcPlayStream*>::iterator it = players_ssrc_map_.find(ssrc);
+        if (it != players_ssrc_map_.end()) {
+            required_player_ssrc = ssrc;
+            break;
         }
+    }
     } else if (SrsRtcpType_rtpfb == rtcp->type()) {
         if(1 == rtcp->get_rc()) {
             SrsRtcpNack* nack = dynamic_cast<SrsRtcpNack*>(rtcp);

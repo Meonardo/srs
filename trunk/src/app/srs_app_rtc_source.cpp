@@ -58,6 +58,8 @@ const int kAudioSamplerate      = 48000;
 
 const int kVideoSamplerate  = 90000;
 
+constexpr uint32_t kNtpEpochOffset = 2208988800UL;
+
 using namespace std;
 
 #ifdef SRS_FFMPEG_FIT
@@ -133,8 +135,8 @@ SrsNtp SrsNtp::from_time_ms(uint64_t ms)
 {
     SrsNtp srs_ntp;
     srs_ntp.system_ms_ = ms;
-    srs_ntp.ntp_second_ = ms / 1000;
-    srs_ntp.ntp_fractions_ = (static_cast<double>(ms % 1000 / 1000.0)) * kMagicNtpFractionalUnit;
+    srs_ntp.ntp_second_ = ms / 1000 + kNtpEpochOffset;
+    srs_ntp.ntp_fractions_ = (static_cast<double>(ms % 1000) / 1000.0) * kMagicNtpFractionalUnit;
     srs_ntp.ntp_ = (static_cast<uint64_t>(srs_ntp.ntp_second_) << 32) | srs_ntp.ntp_fractions_;
     return srs_ntp;
 }
@@ -143,10 +145,13 @@ SrsNtp SrsNtp::to_time_ms(uint64_t ntp)
 {
     SrsNtp srs_ntp;
     srs_ntp.ntp_ = ntp;
-    srs_ntp.ntp_second_ = (ntp & 0xFFFFFFFF00000000ULL) >> 32;
+    srs_ntp.ntp_second_ = ((ntp & 0xFFFFFFFF00000000ULL) >> 32);
     srs_ntp.ntp_fractions_ = (ntp & 0x00000000FFFFFFFFULL);
-    srs_ntp.system_ms_ = (static_cast<uint64_t>(srs_ntp.ntp_second_) * 1000) +
-        round((static_cast<double>(static_cast<uint64_t>(srs_ntp.ntp_fractions_) * 1000.0) / kMagicNtpFractionalUnit));
+    srs_ntp.system_ms_ =
+        (static_cast<uint64_t>(srs_ntp.ntp_second_ - kNtpEpochOffset) * 1000) +
+        round((static_cast<double>(
+                   static_cast<uint64_t>(srs_ntp.ntp_fractions_) * 1000.0) /
+               kMagicNtpFractionalUnit));
     return srs_ntp;
 }
 
@@ -2934,7 +2939,7 @@ srs_error_t SrsRtcSendTrack::handle_rtcp_rr(const SrsRtcpRB& rb, srs_utime_t now
     compact_ntp |= (now_ntp.ntp_fractions_ & 0xFFFF0000) >> 16;
 
     uint32_t rtt = 0;
-    if (lsr && dlsr && (compact_ntp > dlsr + lsr)) {
+    if (lsr && (compact_ntp > dlsr + lsr)) {
         rtt = compact_ntp - dlsr - lsr;
     }
     srs_info("hand rtcp rr ssrc:%u, compact ntp:%lu, dlsr:%u, lsr:%u",
@@ -2943,7 +2948,7 @@ srs_error_t SrsRtcSendTrack::handle_rtcp_rr(const SrsRtcpRB& rb, srs_utime_t now
     rtt_ += (static_cast<float>(rtt & 0x0000FFFF) / 65536.0) * 1000.0;
 
     avg_rtt_ += (rtt_ - avg_rtt_) / 4.0;
-    srs_info("handle rtcp rr ssrc:%u, lost total:%u, lost rate:%.03f, jitter:%u, rtt_:%.02f, avg rtt:%.02f",
+    srs_info("handle rtcp rr ssrc:%u, lost total:%u, lost rate:%.03f, jitter:%u, rtt_:%.02f, avg rtt:%.03f",
             rb.ssrc, lost_total_, lost_rate_, jitter_, rtt_, avg_rtt_);
     return srs_success;
 }
