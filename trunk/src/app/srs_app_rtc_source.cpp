@@ -2541,8 +2541,16 @@ srs_error_t SrsRtcRecvTrack::send_rtcp_rr()
 
     uint32_t ssrc = track_desc_->ssrc_;
     const uint64_t& last_time = last_sender_report_sys_time_;
-    if ((err = session_->send_rtcp_rr(ssrc, rtp_queue_, last_time, last_sender_report_ntp_)) != srs_success) {
-        return srs_error_wrap(err, "ssrc=%u, last_time=%" PRId64, ssrc, last_time);
+
+    auto expected = expected_packets_interval();
+    auto lost = lost_packets_interval();
+
+    if ((err = session_->send_rtcp_rr(
+             ssrc, rtp_queue_, last_time, last_sender_report_ntp_, expected,
+             lost, last_rtp_lost_, rtp_seq_cycles_, rtp_seq_max_)) !=
+        srs_success) {
+      return srs_error_wrap(err, "ssrc=%u, last_time=%" PRId64, ssrc,
+                            last_time);
     }
 
     return err;
@@ -2646,12 +2654,34 @@ srs_error_t SrsRtcAudioRecvTrack::on_rtp(SrsSharedPtr<SrsRtcSource>& source, Srs
 {
     srs_error_t err = srs_success;
 
+    // save the RTP packet count info
+    uint16_t seq = pkt->header.get_sequence();
+    ++rtp_packets_;
+
     pkt->set_avsync_time(cal_avsync_time(pkt->header.get_timestamp()));
     srs_info("Audio async rate=%d, rtp=%u, corrected=%" PRId64, (int)rate_, pkt->header.get_timestamp(), pkt->get_avsync_time());
+
+    if (last_rtp_seq_ > 0xFF00 && seq < 0xFF && 
+        (!rtp_seq_cycles_ || rtp_packets_ - last_cycle_packets_ > 0x1FFF)) {
+        // this brorrowed from ZLMediaKit
+        ++rtp_seq_cycles_;
+        last_cycle_packets_ = rtp_packets_;
+        rtp_seq_max_ = seq;
+    } else if (seq > rtp_seq_max_) {
+        rtp_seq_max_ = seq;
+    }
+
+    if (!rtp_seq_base_) {
+        rtp_seq_base_ = seq;
+    } else if (!rtp_seq_cycles_ && seq < rtp_seq_base_) {
+        rtp_seq_base_ = seq;
+    }
 
     if ((err = source->on_rtp(pkt)) != srs_success) {
         return srs_error_wrap(err, "source on rtp");
     }
+
+    last_rtp_seq_ = seq;
 
     return err;
 }
@@ -2704,13 +2734,37 @@ void SrsRtcVideoRecvTrack::on_before_decode_payload(SrsRtpPacket* pkt, SrsBuffer
 srs_error_t SrsRtcVideoRecvTrack::on_rtp(SrsSharedPtr<SrsRtcSource>& source, SrsRtpPacket* pkt)
 {
     srs_error_t err = srs_success;
+    uint16_t seq = pkt->header.get_sequence();
+
+    // save the RTP packet count info
+    ++rtp_packets_;
 
     pkt->set_avsync_time(cal_avsync_time(pkt->header.get_timestamp()));
     srs_info("Video async rate=%d, rtp=%u, corrected=%" PRId64, (int)rate_, pkt->header.get_timestamp(), pkt->get_avsync_time());
 
+    if (last_rtp_seq_ > 0xFF00 && seq < 0xFF && 
+        (!rtp_seq_cycles_ || rtp_packets_ - last_cycle_packets_ > 0x1FFF)) {
+        // this brorrowed from ZLMediaKit
+        ++rtp_seq_cycles_;
+        last_cycle_packets_ = rtp_packets_;
+        rtp_seq_max_ = seq;
+    } else if (seq > rtp_seq_max_) {
+        rtp_seq_max_ = seq;
+    }
+
+    if (!rtp_seq_base_) {
+        rtp_seq_base_ = seq;
+    } else if (!rtp_seq_cycles_ && seq < rtp_seq_base_) {
+        rtp_seq_base_ = seq;
+    }
+
     if ((err = source->on_rtp(pkt)) != srs_success) {
         return srs_error_wrap(err, "source on rtp");
     }
+
+    // srs_warn("recv RTP count info: total pkt count: %lu, rtp seq base: %u, cycles: %u, expected pkt: %lu, lost pkt: %lu", rtp_packets_, rtp_seq_base_, rtp_seq_cycles_, expected_packets_interval(), lost_packets_interval());
+
+    last_rtp_seq_ = seq;
 
     return err;
 }

@@ -774,7 +774,7 @@ srs_error_t SrsRtcPlayStream::send_packet(SrsRtpPacket*& pkt)
 
     // Ignore if no track found.
     if (!track) {
-        srs_warn("RTC: Drop for ssrc %u not found", ssrc); // this maybe only play audio or video.
+        srs_verbose("RTC: Drop for ssrc %u not found", ssrc); // this maybe only play audio or video.
         return err;
     }
 
@@ -872,9 +872,9 @@ srs_error_t SrsRtcPlayStream::on_rtcp_rr(SrsRtcpRR* rtcp, srs_utime_t now_ms)
         }
       }
       srs_warn("rtcp rr find to find track by ssrc:%u", ssrc);
-
-      return err;
     }
+
+    return err;
 }
 
 srs_error_t SrsRtcPlayStream::on_rtcp_xr(SrsRtcpXr* rtcp)
@@ -2428,7 +2428,7 @@ void SrsRtcConnection::check_send_nacks(SrsRtpNackForReceiver* nack, uint32_t ss
     send_rtcp(stream.data(), stream.pos());
 }
 
-srs_error_t SrsRtcConnection::send_rtcp_rr(uint32_t ssrc, SrsRtpRingBuffer* rtp_queue, const uint64_t& last_send_systime, const SrsNtp& last_send_ntp)
+srs_error_t SrsRtcConnection::send_rtcp_rr(uint32_t ssrc, SrsRtpRingBuffer* rtp_queue, const uint64_t& last_send_systime, const SrsNtp& last_send_ntp, size_t expected, size_t lost, size_t cumulative_lost, uint16_t cycles, uint16_t seq_max)
 {
     ++_srs_pps_srtcps->sugar;
 
@@ -2441,8 +2441,11 @@ srs_error_t SrsRtcConnection::send_rtcp_rr(uint32_t ssrc, SrsRtpRingBuffer* rtp_
     stream.write_4bytes(ssrc); // TODO: FIXME: Should be 1?
 
     uint8_t fraction_lost = 0;
-    uint32_t cumulative_number_of_packets_lost = 0 & 0x7FFFFF;
-    uint32_t extended_highest_sequence = rtp_queue->get_extended_highest_sequence();
+    if (expected > 0) {
+        fraction_lost = uint8_t(lost << 8 / expected);
+    }
+    uint32_t cumulative_number_of_packets_lost = ((uint32_t)cumulative_lost & 0x7FFFFF);
+    uint32_t extended_highest_sequence = seq_max; // rtp_queue->get_extended_highest_sequence();
     uint32_t interarrival_jitter = 0;
 
     uint32_t rr_lsr = 0;
@@ -2462,8 +2465,8 @@ srs_error_t SrsRtcConnection::send_rtcp_rr(uint32_t ssrc, SrsRtpRingBuffer* rtp_
     stream.write_4bytes(rr_lsr);
     stream.write_4bytes(rr_dlsr);
 
-    srs_info("RR ssrc=%u, fraction_lost=%u, cumulative_number_of_packets_lost=%u, extended_highest_sequence=%u, interarrival_jitter=%u",
-        ssrc, fraction_lost, cumulative_number_of_packets_lost, extended_highest_sequence, interarrival_jitter);
+    srs_warn("RR ssrc=%u, fraction_lost=%u, cumulative_number_of_packets_lost=%u, extended_highest_sequence=%u, interarrival_jitter=%u",
+        ssrc, fraction_lost, cumulative_number_of_packets_lost, seq_max, interarrival_jitter);
 
     return send_rtcp(stream.data(), stream.pos());
 }

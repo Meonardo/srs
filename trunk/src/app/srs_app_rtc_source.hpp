@@ -561,7 +561,18 @@ protected:
 
     double rate_;
     uint64_t last_sender_report_sys_time_;
-public:
+
+    // for sending RTCP RR
+    size_t rtp_packets_ = 0;
+    uint16_t rtp_seq_base_ = 0;
+    uint16_t rtp_seq_max_ = 0;
+    uint16_t rtp_seq_cycles_ = 0;
+    size_t last_cycle_packets_ = 0;
+    uint16_t last_rtp_seq_ = 0;
+    size_t last_rtp_expected_ = 0;
+    size_t last_rtp_lost_ = 0;
+
+   public:
     SrsRtcRecvTrack(SrsRtcConnection* session, SrsRtcTrackDescription* stream_descs, bool is_audio);
     virtual ~SrsRtcRecvTrack();
 public:
@@ -581,6 +592,25 @@ public:
     // Note that we can set the pkt to NULL to avoid copy, for example, if the NACK cache the pkt and
     // set to NULL, nack nerver copy it but set the pkt to NULL.
     srs_error_t on_nack(SrsRtpPacket** ppkt);
+public:
+    size_t expected_packets() const {
+        return (rtp_seq_cycles_ << 16) + rtp_seq_max_ - rtp_seq_base_ + 1;
+    }
+    size_t expected_packets_interval() {
+        auto expected = expected_packets();
+        auto ret = expected - last_rtp_expected_;
+        last_rtp_expected_ = expected;
+        return ret;
+    }
+    size_t lost_packets() {
+        return expected_packets() - rtp_packets_;
+    }
+    size_t lost_packets_interval() {
+        auto lost = lost_packets();
+        auto ret = lost - last_rtp_lost_;
+        last_rtp_lost_ = lost;
+        return ret;
+    }
 public:
     virtual srs_error_t on_rtp(SrsSharedPtr<SrsRtcSource>& source, SrsRtpPacket* pkt) = 0;
     virtual srs_error_t check_send_nacks() = 0;
