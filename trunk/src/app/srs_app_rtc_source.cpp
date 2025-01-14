@@ -2934,7 +2934,8 @@ void SrsRtcSendTrack::rebuild_packet(SrsRtpPacket* pkt)
 {
     // Rebuild the sequence number.
     int16_t seq = pkt->header.get_sequence();
-    pkt->header.set_sequence(jitter_seq_->correct(seq));
+    jitter_seq_->correct(seq);
+    // pkt->header.set_sequence(jitter_seq_->correct(seq));
 
     // Rebuild the timestamp.
     uint32_t ts = pkt->header.get_timestamp();
